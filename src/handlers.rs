@@ -9,12 +9,12 @@ use futures::future::{join, join_all};
 use serde_json::json;
 use std::collections::BTreeMap;
 
-#[get("/hello/")]
+#[get("/db/hello/")]
 pub async fn hello() -> impl Responder {
     "hello".to_string()
 }
 
-#[get("/list/")]
+#[get("/db/list/")]
 pub async fn get_list(
     redis: web::Data<Addr<RedisActor>>,
 ) -> Either<web::Json<Vec<Tag>>, web::Json<&'static str>> {
@@ -41,7 +41,7 @@ pub async fn get_list(
     Either::A(web::Json(tasks))
 }
 
-#[get("/info/{id}/")]
+#[get("/db/info/{id}/")]
 pub async fn get_vote_info(
     id: web::Path<String>,
     redis: web::Data<Addr<RedisActor>>,
@@ -58,7 +58,7 @@ pub async fn get_vote_info(
     }
 }
 
-#[post("/info/")]
+#[post("/db/info/")]
 pub async fn post_vote_info(
     info: web::Json<VoteInfo>,
     redis: web::Data<Addr<RedisActor>>,
@@ -91,7 +91,7 @@ pub async fn post_vote_info(
     }
 }
 
-#[post("/info/{uid}/{user}/")]
+#[post("/db/info/{uid}/{user}/")]
 pub async fn update_user_vote(
     path: web::Path<(String, String)>,
     redis: web::Data<Addr<RedisActor>>,
@@ -135,7 +135,7 @@ pub async fn update_user_vote(
     web::Json("vote info no change".to_string())
 }
 
-#[post("/info/dummy/")]
+#[post("/db/info/dummy/")]
 pub async fn post_dummy_info(
     redis: web::Data<Addr<RedisActor>>,
 ) -> Either<web::Json<String>, web::Json<&'static str>> {
@@ -147,26 +147,26 @@ pub async fn post_dummy_info(
     }
 }
 
-#[get("/info/dummy/")]
+#[get("/db/info/dummy/")]
 pub async fn get_dummy_info() -> web::Json<VoteInfo> {
     let info = VoteInfo::dummy();
     web::Json(info)
 }
 
-#[get("/result/dummy/")]
+#[get("/db/result/dummy/")]
 pub async fn get_dummy_result() -> impl Responder {
     let result = VoteResult::dummy();
     web::Json(result)
 }
 
-#[post("/result/dummy/")]
+#[post("/db/result/dummy/")]
 pub async fn post_dummy_result(redis: web::Data<Addr<RedisActor>>) -> impl Responder {
     let result = VoteResult::dummy();
     let _result = redis_util::add(&result, &redis).await;
     web::Json("ok")
 }
 
-#[get("/result/{info_hash}/")]
+#[get("/db/result/{info_hash}/")]
 pub async fn get_vote_result(
     info_hash: web::Path<String>,
     redis: web::Data<Addr<RedisActor>>,
@@ -181,7 +181,7 @@ pub async fn get_vote_result(
     }
 }
 
-#[post("/result/")]
+#[post("/db/result/")]
 pub async fn post_vote_result(
     redis: web::Data<Addr<RedisActor>>,
     result: web::Json<VoteResult>,
