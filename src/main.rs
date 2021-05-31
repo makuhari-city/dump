@@ -5,7 +5,7 @@ mod redis_util;
 
 use actix_cors::Cors;
 use actix_redis::RedisActor;
-use actix_web::{middleware, web, App, HttpServer};
+use actix_web::{middleware, App, HttpServer};
 use dotenv;
 use model::VoteInfo;
 use std::env;
@@ -48,7 +48,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_vote_result)
             .service(post_vote_result)
     })
-    .bind("0.0.0.0:8080")?
+    .bind("0.0.0.0:8082")?
     .run()
     .await
 }
