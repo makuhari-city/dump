@@ -41,6 +41,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_dummy_info)
             .service(post_dummy_result)
             .service(get_dummy_result)
+            .service(get_tag)
             .service(get_list)
             .service(get_vote_info)
             .service(post_vote_info)

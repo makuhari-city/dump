@@ -41,6 +41,19 @@ pub async fn get_list(
     Either::A(web::Json(tasks))
 }
 
+#[get("/db/tag/{uid}/")]
+pub async fn get_tag(uid: web::Path<String>, redis: web::Data<Addr<RedisActor>>) -> impl Responder {
+    let uid = uid.into_inner();
+
+    match redis_util::get_slice(&uid, "tag", &redis).await {
+        Some(v) => {
+            let tag: Tag = serde_json::from_slice(&v).unwrap();
+            web::Json(tag.hash)
+        }
+        None => web::Json("no tag found for given uid".to_string()),
+    }
+}
+
 #[get("/db/info/{id}/")]
 pub async fn get_vote_info(
     id: web::Path<String>,
