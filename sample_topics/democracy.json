@@ -1,0 +1,16 @@
+{
+  "uid": "b3b7d0a7-b783-4077-8a46-56be0643f3bb",
+  "title": "which aggregation rule?",
+  "description": "民主主義の選定の方法",
+  "parent": null,
+  "method": "liquid",
+  "params": {
+    "is_quadratic": null,
+    "is_normalize": null,
+    "voters": {
+      "yasushi": {
+        "first pass the vote": 1.0
+      }
+    }
+  }
+}

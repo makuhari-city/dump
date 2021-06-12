@@ -6,7 +6,6 @@ use actix::Addr;
 use actix_redis::RedisActor;
 use actix_web::{get, post, web, Either, Responder};
 use futures::future::{join, join_all};
-use serde_json::json;
 use std::collections::BTreeMap;
 
 #[get("/db/hello/")]

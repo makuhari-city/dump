@@ -1,0 +1,16 @@
+{
+  "uid": "13abe9d5-c96d-4429-98a2-01e21fc00abc",
+  "title": "makuhari artist",
+  "description": "アーティストの選定",
+  "parent": null,
+  "method": "liquid",
+  "params": {
+    "is_quadratic": null,
+    "is_normalize": null,
+    "voters": {
+      "yasushi": {
+        "test": 1.0
+      }
+    }
+  }
+}
