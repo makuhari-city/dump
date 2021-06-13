@@ -1,18 +1,1 @@
-
-* building
-
-to build 
-
-$ docker build . -t dump
-
-* prepare redis
-
-`dump` assumes that redis is running somewhere as the database
-
-$ docker run -d -p 6379:6379 --name redis redis
-
-this will run a generic redis instance
-
-* running
-
-$ docker run -p 8082:8082 --net=host dump
+docker-compose up

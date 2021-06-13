@@ -21,11 +21,11 @@ async fn main() -> std::io::Result<()> {
     env_logger::init();
 
     HttpServer::new(|| {
-        let address = format!(
-            "{}:{}",
-            env::var("REDIS_ADDR").unwrap(),
-            env::var("REDIS_PORT").unwrap()
-        );
+        let redis_addr: String = env::var("REDIS_ADDR").unwrap_or("127.0.0.1".to_string());
+
+        let redis_port: String = env::var("REDIS_PORT").unwrap_or("6379".to_string());
+
+        let address = format!("{}:{}", redis_addr, redis_port);
 
         let redis_addr = RedisActor::start(&address);
 

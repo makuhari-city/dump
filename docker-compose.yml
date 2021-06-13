@@ -1,0 +1,19 @@
+services:
+
+    redis:
+        image: redis:latest
+        ports:
+            - 6379:6379
+        command: ["redis-server", "--appendonly", "yes"]
+        volumes:
+            - $PWD/redis-data:/data
+
+    app:
+        build: ./
+        depends_on:
+            - redis
+        ports:
+            - 8082:8082
+        environment:
+            - REDIS_ADDR=redis
+            - REDIS_PORT=6379
