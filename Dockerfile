@@ -5,6 +5,7 @@ WORKDIR ./dump
 COPY ./Cargo.toml ./Cargo.toml
 RUN cargo build --release
 RUN rm src/*.rs
+RUN rm -rf .git*
 
 ADD . ./ 
 
