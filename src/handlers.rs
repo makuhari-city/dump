@@ -1,206 +1,347 @@
-use crate::{
-    model::{Tag, VoteResult},
-    redis_util, RedisObject, VoteInfo,
-};
+use crate::model::TopicHeader;
+use crate::{model::TopicCalculationResult, redis_util, RedisObject};
 use actix::Addr;
 use actix_redis::RedisActor;
-use actix_web::{get, post, web, Either, Responder};
-use futures::future::{join, join_all};
+use actix_web::{get, post, web, Responder};
+use futures::{future::join_all, join};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::BTreeMap;
+use uuid::Uuid;
+use vote::{TopicData, VoteData};
 
-#[get("/db/hello/")]
+#[get("/hello/")]
 pub async fn hello() -> impl Responder {
     "hello".to_string()
 }
 
-#[get("/db/list/")]
-pub async fn get_list(
-    redis: web::Data<Addr<RedisActor>>,
-) -> Either<web::Json<Vec<Tag>>, web::Json<&'static str>> {
-    let title_list = match redis_util::get_list("tag", &redis).await {
-        Some(v) => v,
-        None => {
-            return Either::B(web::Json("failed to fetch id list"));
-        }
+#[get("/list/")]
+pub async fn get_list(redis: web::Data<Addr<RedisActor>>) -> impl Responder {
+    let ids = redis_util::get_list("header", &redis).await;
+
+    if ids.is_none() {
+        return web::Json(json!({"status":"error", "mes":"could not get tag list"}));
     };
 
-    let tasks = title_list
-        .iter()
-        .map(|title| redis_util::get_slice(title, "tag", &redis));
+    log::info!("{:?}", &ids);
 
-    let tasks: Vec<Tag> = join_all(tasks)
-        .await
-        .iter()
-        .map(|slice| {
-            let slice = slice.clone().unwrap();
-            serde_json::from_slice(&slice).unwrap()
-        })
-        .collect();
+    let tags: Vec<TopicHeader> = join_all(
+        ids.unwrap()
+            .iter()
+            .map(|tag| redis_util::get_slice(tag, "header", &redis)),
+    )
+    .await
+    .iter()
+    .filter(|result| result.is_some())
+    .map(|tag| serde_json::from_slice(&(tag.to_owned().unwrap())).unwrap())
+    .collect();
 
-    Either::A(web::Json(tasks))
+    web::Json(serde_json::to_value(tags).unwrap())
 }
 
-#[get("/db/tag/{uid}/")]
-pub async fn get_tag(uid: web::Path<String>, redis: web::Data<Addr<RedisActor>>) -> impl Responder {
-    let uid = uid.into_inner();
+#[get("/history/{id}/")]
+pub async fn history(id: web::Path<String>, redis: web::Data<Addr<RedisActor>>) -> impl Responder {
+    let id = id.into_inner();
+    let history = redis_util::get_history(&id, &redis).await;
 
-    match redis_util::get_slice(&uid, "tag", &redis).await {
-        Some(v) => {
-            let tag: Tag = serde_json::from_slice(&v).unwrap();
-            web::Json(tag.hash)
-        }
-        None => web::Json("no tag found for given uid".to_string()),
+    match history {
+        Some(h) => web::Json(serde_json::to_value(h).unwrap()),
+        None => web::Json(json!({"status":"error", "mes":"history not found"})),
     }
 }
 
-#[get("/db/info/{id}/")]
-pub async fn get_vote_info(
+#[post("/topic/raw/")]
+pub async fn post_topic_raw(
+    topic: web::Json<TopicData>,
+    redis: web::Data<Addr<RedisActor>>,
+) -> impl Responder {
+    let topic: TopicData = topic.into_inner();
+
+    // check if uuid is alreay in tags
+    let header: Option<TopicHeader> =
+        redis_util::get_slice(&topic.id.to_string(), "header", &redis)
+            .await
+            .and_then(|v| serde_json::from_slice(&v).unwrap());
+
+    let topic_hash = topic.hash();
+
+    let new_tag = match header {
+        Some(t) if t.hash == topic_hash => {
+            // check if tag's hash is the same as the current topic
+            // if it's the same do nothing. data won't change
+            return web::Json(
+                json!({"status":"ok", "hash":t.hash, "id": t.id, "mes":"dup found, no change"}),
+            );
+        }
+        _ => TopicHeader::new(&topic.id, &topic_hash, &topic.title),
+    };
+
+    let push_history = redis_util::push_history(&topic.id, &topic_hash, &redis);
+    let update_tag = redis_util::add(&new_tag, &redis);
+    let add_topic = redis_util::add(&topic, &redis);
+    let (id, _hash, _history) = join!(update_tag, add_topic, push_history);
+    match id {
+        Some(id) => return web::Json(json!({"status":"ok", "hash": topic_hash, "id": id})),
+        None => {
+            return web::Json(
+                json!({"status":"error", "mes":"could not update tag and post topic."}),
+            )
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct PartialTopic {
+    title: String,
+    description: String,
+}
+
+#[post("/topic/new/")]
+pub async fn make_new_topic(
+    partial: web::Json<PartialTopic>,
+    redis: web::Data<Addr<RedisActor>>,
+) -> impl Responder {
+    let partial = partial.into_inner();
+
+    let new_topic = TopicData::new(&partial.title, &partial.description);
+    let new_header = TopicHeader::new(&new_topic.id, &new_topic.hash(), &partial.title);
+
+    let (hash, _head) = join!(
+        redis_util::add(&new_topic, &redis),
+        redis_util::add(&new_header, &redis)
+    );
+
+    match hash {
+        Some(h) => web::Json(json!({"status":"ok", "id":new_topic.id, "hash":h})),
+        None => web::Json(json!({"status":"error", "mes": "error adding new topic"})),
+    }
+}
+
+#[post("/topic/update/{id}/{field}/")]
+pub async fn update_field(
+    path: web::Path<(String, String)>,
+    new_info: web::Json<String>,
+    redis: web::Data<Addr<RedisActor>>,
+) -> impl Responder {
+    let (id, field) = path.into_inner();
+
+    let new = new_info.into_inner();
+
+    let data = get_latest_id(&id, &redis).await;
+
+    if data.is_none() {
+        return web::Json(json!({"status":"error", "mes": "could not find table data under id."}));
+    }
+
+    let mut data = data.unwrap();
+
+    match field.as_ref() {
+        "title" => data.title = new,
+        "description" => data.description = new,
+        _ => return web::Json(json!({"status":"error", "mes": "invalid field"})),
+    };
+
+    match update_topic_data(&data, &redis).await {
+        true => web::Json(json!({"status":"ok"})),
+        _ => web::Json(json!({"status":"error", "mes":"failed to update topic data."})),
+    }
+}
+
+#[post("/topic/update/{id}/policy/")]
+pub async fn add_policy(
+    id: web::Path<String>,
+    policy: web::Json<String>,
+    redis: web::Data<Addr<RedisActor>>,
+) -> impl Responder {
+    let id = id.into_inner();
+    let policy = policy.into_inner();
+
+    let data = get_latest_id(&id, &redis).await;
+
+    if data.is_none() {
+        return web::Json(json!({"status":"error", "mes":"failed to get topic data"}));
+    }
+
+    let mut data = data.unwrap();
+
+    let _id = data.add_new_policy(&policy);
+
+    let vote: VoteData = data.to_owned().into();
+
+    println!("vote:{:?}", vote);
+
+    match update_topic_data(&data, &redis).await {
+        true => web::Json(json!(&data)),
+        _ => web::Json(json!({"status":"error", "mes": "failed to update data"})),
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct UserVote {
+    id: Uuid,
+    name: String,
+    vote: BTreeMap<Uuid, f64>,
+}
+
+#[post("/topic/update/{id}/delegate/")]
+pub async fn update_vote(
+    path: web::Path<String>,
+    uservote: web::Json<UserVote>,
+    redis: web::Data<Addr<RedisActor>>,
+) -> impl Responder {
+    let id = path.into_inner();
+    let uservote = uservote.into_inner();
+
+    let data = get_latest_id(&id, &redis).await;
+
+    if data.is_none() {
+        return web::Json(json!({ "status":"error", "mes":"could not find topic data." }));
+    };
+
+    let mut data = data.unwrap();
+
+    // is this uid already registered?
+    if !data.votes().iter().any(|(p, _)| p == &uservote.id) {
+        let _ = data.add_delegate(&uservote.id, &uservote.name);
+    };
+
+    data.overwrite_vote_for(uservote.id, uservote.vote);
+
+    match update_topic_data(&data, &redis).await {
+        true => web::Json(json!(&data)),
+        _ => web::Json(json!({"status":"error", "mes": "failed to update data"})),
+    }
+}
+
+pub async fn get_latest_id(id: &str, redis: &web::Data<Addr<RedisActor>>) -> Option<TopicData> {
+    let hash = redis_util::get_slice(id, "header", &redis)
+        .await
+        .and_then(|slice| serde_json::from_slice::<TopicHeader>(&slice).ok())
+        .and_then(|header| Some(header.hash));
+
+    if hash.is_none() {
+        return None;
+    }
+
+    let hash = hash.unwrap();
+
+    redis_util::get_slice(&hash, "topic", &redis)
+        .await
+        .and_then(|slice| serde_json::from_slice::<TopicData>(&slice).ok())
+}
+
+pub async fn update_topic_data(data: &TopicData, redis: &web::Data<Addr<RedisActor>>) -> bool {
+    let header: Option<TopicHeader> = redis_util::get_slice(&data.id.to_string(), "header", &redis)
+        .await
+        .and_then(|slice| serde_json::from_slice(&slice).ok());
+
+    log::info!("header:{:?}", header);
+
+    if header.is_none() {
+        // no header, we don't update
+        return false;
+    }
+
+    let data_hash = data.hash();
+    let header = header.unwrap();
+
+    log::info!("{}={}", &header.hash, &data_hash);
+
+    if &header.hash == &data_hash {
+        // same data, we don't update
+        return false;
+    }
+
+    let push_history = redis_util::push_history(&data.id, &data_hash, &redis);
+    let new_header = TopicHeader::new(&data.id, &data.hash(), &data.title);
+    let update_header = redis_util::add(&new_header, &redis);
+    let post_data = redis_util::add(data, &redis);
+
+    let (_, _, hash) = join!(push_history, update_header, post_data);
+
+    log::info!("hash: {:?}", &hash);
+
+    match hash {
+        Some(_h) => true,
+        _ => false,
+    }
+}
+
+#[get("/topic/raw/{hash}/")]
+pub async fn get_topic_raw(
+    hash: web::Path<String>,
+    redis: web::Data<Addr<RedisActor>>,
+) -> impl Responder {
+    let hash = hash.into_inner();
+    match redis_util::get_slice(&hash, "topic", &redis).await {
+        Some(s) => {
+            let topic: TopicData =
+                serde_json::from_slice(&s).expect("topic should be Deserializeable");
+            web::Json(serde_json::to_value(topic).expect("this also should be Serializable"))
+        }
+        None => web::Json(json!({"status":  "error", "message": "could not find topic"})),
+    }
+}
+
+#[get("/topic/{id}/")]
+pub async fn get_topic_by_id(
     id: web::Path<String>,
     redis: web::Data<Addr<RedisActor>>,
-) -> Either<web::Json<VoteInfo>, web::Json<&'static str>> {
-    // let info = VoteInfo::dummy();
+) -> impl Responder {
     let id = id.into_inner();
 
-    match redis_util::get_slice(&id, "info", &redis).await {
-        Some(v) => {
-            let info: VoteInfo = serde_json::from_slice(&v).unwrap();
-            Either::A(web::Json(info))
+    let latest_hash = redis_util::get_slice(&id, "header", &redis)
+        .await
+        .and_then(|header| {
+            Some(
+                serde_json::from_slice::<TopicHeader>(&header)
+                    .expect("Topic Header is Serializable"),
+            )
+        })
+        .and_then(|h| Some(h.hash));
+
+    match latest_hash {
+        Some(s) => {
+            let topic = redis_util::get_slice(&s, "topic", &redis)
+                .await
+                .and_then(|b| Some(serde_json::from_slice::<TopicData>(&b).unwrap()));
+            match topic {
+                Some(t) => web::Json(json!(t)),
+                None => web::Json(json!({"status":  "error", "message": "could not find topic"})),
+            }
         }
-        None => Either::B(web::Json("failed to get vote info.")),
+        None => web::Json(json!({"status":  "error", "message": "could not find topic"})),
     }
 }
 
-#[post("/db/info/")]
-pub async fn post_vote_info(
-    info: web::Json<VoteInfo>,
+#[post("/result/{hash}/")]
+pub async fn dump_result(
+    hash: web::Path<String>,
+    data: web::Json<serde_json::Value>,
     redis: web::Data<Addr<RedisActor>>,
-) -> Either<web::Json<String>, web::Json<&'static str>> {
-    let mut info = info.into_inner();
-
-    // check there is a tag
-    let tag_slice = redis_util::get_slice(&info.title, "tag", &redis).await;
-
-    if tag_slice.is_some() {
-        let tag: Tag = serde_json::from_slice(&tag_slice.to_owned().unwrap()).unwrap();
-
-        if info.id() == tag.hash {
-            return Either::B(web::Json("vote info already saved."));
-        }
-
-        info.update_parent(tag.hash);
-    }
-
-    let id = info.id();
-    let tag = Tag::new(&info.uid, &id, &info.title);
-    let add_to_list = redis_util::add(&tag, &redis);
-    let add_info_obj = redis_util::add(&info, &redis);
-
-    let (_list, obj) = join(add_to_list, add_info_obj).await;
-
-    match obj {
-        true => Either::A(web::Json(info.id())),
-        false => Either::B(web::Json("failed to save vote info.")),
-    }
-}
-
-#[post("/db/info/{uid}/{user}/")]
-pub async fn update_user_vote(
-    path: web::Path<(String, String)>,
-    redis: web::Data<Addr<RedisActor>>,
-    vote: web::Json<BTreeMap<String, f64>>,
 ) -> impl Responder {
-    // get the info
-    let (uid, user) = path.into_inner();
-    let vote = vote.into_inner();
+    let hash = hash.into_inner();
+    let data = data.into_inner();
+    let result = TopicCalculationResult::new(&hash, &data);
 
-    let tag = redis_util::get_slice(&uid, "tag", &redis).await;
-
-    if tag.is_none() {
-        return web::Json("tag not found".to_string());
-    }
-
-    let tag: Tag = serde_json::from_slice(&tag.unwrap()).unwrap();
-
-    let info = redis_util::get_slice(&tag.hash, "info", &redis).await;
-
-    if info.is_none() {
-        return web::Json("info not found".to_string());
-    }
-
-    let mut info: VoteInfo = serde_json::from_slice(&info.unwrap()).unwrap();
-    let prev_id = info.id();
-    info.params.voters.0.insert(user, vote);
-
-    if prev_id != info.id() {
-        let tag = Tag::new(&info.uid, &info.id(), &info.title);
-        let add_to_list = redis_util::add(&tag, &redis);
-        let add_info_obj = redis_util::add(&info, &redis);
-
-        let (_list, obj) = join(add_to_list, add_info_obj).await;
-
-        return match obj {
-            true => web::Json(info.id()),
-            false => web::Json("failed to save vote info.".to_string()),
-        };
-    }
-
-    web::Json("vote info no change".to_string())
-}
-
-#[post("/db/info/dummy/")]
-pub async fn post_dummy_info(
-    redis: web::Data<Addr<RedisActor>>,
-) -> Either<web::Json<String>, web::Json<&'static str>> {
-    let info = VoteInfo::dummy();
-
-    match redis_util::add(&info, &redis).await {
-        true => Either::A(web::Json(info.id())),
-        false => Either::B(web::Json("failed to save vote info.")),
-    }
-}
-
-#[get("/db/info/dummy/")]
-pub async fn get_dummy_info() -> web::Json<VoteInfo> {
-    let info = VoteInfo::dummy();
-    web::Json(info)
-}
-
-#[get("/db/result/dummy/")]
-pub async fn get_dummy_result() -> impl Responder {
-    let result = VoteResult::dummy();
-    web::Json(result)
-}
-
-#[post("/db/result/dummy/")]
-pub async fn post_dummy_result(redis: web::Data<Addr<RedisActor>>) -> impl Responder {
-    let result = VoteResult::dummy();
-    let _result = redis_util::add(&result, &redis).await;
-    web::Json("ok")
-}
-
-#[get("/db/result/{info_hash}/")]
-pub async fn get_vote_result(
-    info_hash: web::Path<String>,
-    redis: web::Data<Addr<RedisActor>>,
-) -> Either<web::Json<VoteResult>, web::Json<&'static str>> {
-    let hash = info_hash.into_inner();
-    match redis_util::get_slice(&hash, "result", &redis).await {
-        Some(v) => {
-            let result: VoteResult = serde_json::from_slice(&v).unwrap();
-            Either::A(web::Json(result))
-        }
-        None => Either::B(web::Json("result not found")),
-    }
-}
-
-#[post("/db/result/")]
-pub async fn post_vote_result(
-    redis: web::Data<Addr<RedisActor>>,
-    result: web::Json<VoteResult>,
-) -> web::Json<&'static str> {
-    let result = result.into_inner();
     match redis_util::add(&result, &redis).await {
-        true => web::Json("ok"),
-        false => web::Json("failed to add result"),
+        Some(hash) => web::Json(json!({"status":"ok", "hash": hash})),
+        None => web::Json(json!({"status":"error", "mes": "could not add result"})),
+    }
+}
+
+#[get("/result/{hash}/")]
+pub async fn get_result(
+    hash: web::Path<String>,
+    redis: web::Data<Addr<RedisActor>>,
+) -> impl Responder {
+    let hash = hash.into_inner();
+
+    match redis_util::get_slice(&hash, "result", &redis)
+        .await
+        .and_then(|bytes| serde_json::from_slice::<TopicCalculationResult>(&bytes).ok())
+    {
+        Some(result) => web::Json(json!(result)),
+        None => web::Json(json!({"status":"error", "mes":"could not find result"})),
     }
 }

@@ -5,9 +5,8 @@ mod redis_util;
 
 use actix_cors::Cors;
 use actix_redis::RedisActor;
-use actix_web::{middleware, App, HttpServer};
+use actix_web::{middleware, web, App, HttpServer};
 use dotenv;
-use model::VoteInfo;
 use std::env;
 
 pub use redis_object::RedisObject;
@@ -17,7 +16,7 @@ use handlers::*;
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv::dotenv().ok();
-    std::env::set_var("RUST_LOG", "actix_web=trace,actix_redis=trace,cityio=debug");
+    std::env::set_var("RUST_LOG", "actix_web=trace,actix_redis=trace,dump=trace");
     env_logger::init();
 
     HttpServer::new(|| {
@@ -36,18 +35,32 @@ async fn main() -> std::io::Result<()> {
             .data(redis_addr)
             .wrap(middleware::Logger::default())
             .wrap(cors)
-            .service(hello)
-            .service(post_dummy_info)
-            .service(get_dummy_info)
-            .service(post_dummy_result)
-            .service(get_dummy_result)
-            .service(get_tag)
-            .service(get_list)
-            .service(get_vote_info)
-            .service(post_vote_info)
-            .service(update_user_vote)
-            .service(get_vote_result)
-            .service(post_vote_result)
+            .service(
+                web::scope("/db")
+                    // hello/
+                    .service(hello)
+                    // * list/
+                    .service(get_list)
+                    // * history/id/
+                    .service(history)
+                    // * result/hash/
+                    .service(dump_result)
+                    .service(get_result)
+                    // * topic/update/id/delegate/
+                    .service(update_vote)
+                    // * topic/update/id/policy/
+                    .service(add_policy)
+                    // * topic/update/id/field/
+                    .service(update_field)
+                    // topic/new/
+                    .service(make_new_topic)
+                    // * topic/raw/hash/
+                    .service(get_topic_raw)
+                    // * topic/raw/hash/
+                    .service(post_topic_raw)
+                    // * topic/id/
+                    .service(get_topic_by_id),
+            )
     })
     .bind("0.0.0.0:8082")?
     .run()

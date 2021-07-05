@@ -1,0 +1,52 @@
+{
+  "title": "topic title",
+  "id": "c9d60f62-939b-449d-a93b-92bb89ef8d2e",
+  "votes": {
+    "06a6d870-bff9-4527-91c1-462a1b13caf6": [
+      [
+        "5efe619b-704c-4f96-94d8-87fae06f6032",
+        1
+      ]
+    ],
+    "56dc7553-b13d-4572-aea6-63830db2354a": [
+      [
+        "5cabf1b3-8cbb-4eba-ad0f-20b628bd4893",
+        1
+      ]
+    ],
+    "01fe5eb7-e5aa-47ad-bbf5-72a08318222f": [
+      [
+        "5cabf1b3-8cbb-4eba-ad0f-20b628bd4893",
+        1
+      ]
+    ]
+  },
+  "delegates": [
+    [
+      "06a6d870-bff9-4527-91c1-462a1b13caf6",
+      "alice"
+    ],
+    [
+      "56dc7553-b13d-4572-aea6-63830db2354a",
+      "bob"
+    ],
+    [
+      "01fe5eb7-e5aa-47ad-bbf5-72a08318222f",
+      "charlie"
+    ]
+  ],
+  "policies": [
+    [
+      "5efe619b-704c-4f96-94d8-87fae06f6032",
+      "apples"
+    ],
+    [
+      "5cabf1b3-8cbb-4eba-ad0f-20b628bd4893",
+      "bananas"
+    ],
+    [
+      "8f940399-3d0a-4fb4-b11e-fe8491e4e048",
+      "orange"
+    ]
+  ]
+}

@@ -8,10 +8,16 @@ pub trait RedisObject: Serialize + Debug {
         Self::domain_prefix()
     }
 
-    fn id(&self) -> String;
-    fn domain(&self) -> String {
-        return format!("{}:{}", Self::domain_prefix(), &self.id());
+    fn plural_prefix(&self) -> String {
+        format!("{}s", self.prefix())
     }
+
+    fn hash(&self) -> String;
+
+    fn domain(&self) -> String {
+        return format!("{}:{}", Self::domain_prefix(), &self.hash());
+    }
+
     fn json(&self) -> String {
         serde_json::to_string(&self).expect("I should be Serialize-able")
     }

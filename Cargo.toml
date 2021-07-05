@@ -20,4 +20,7 @@ redis-async = "0.6.3"
 serde = "1.0.123"
 serde_json = "1.0.63"
 sha2 = "0.9.5"
+uuid = "0.8.2"
+# vote = {path="../vote"}
+vote={git="https://github.com/makuhari-city/vote", rev="88451b110c6aba34b0ade8ffda81c6e755d441ae"}
 
