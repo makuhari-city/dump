@@ -41,6 +41,7 @@ async fn main() -> std::io::Result<()> {
                     .service(hello)
                     // * list/
                     .service(get_list)
+                    .service(get_header)
                     // * history/id/
                     .service(history)
                     // * result/hash/

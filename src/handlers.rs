@@ -39,6 +39,20 @@ pub async fn get_list(redis: web::Data<Addr<RedisActor>>) -> impl Responder {
     web::Json(serde_json::to_value(tags).unwrap())
 }
 
+#[get("/header/{id}")]
+pub async fn get_header(
+    id: web::Path<String>,
+    redis: web::Data<Addr<RedisActor>>,
+) -> impl Responder {
+    match redis_util::get_slice(&id, "header", &redis)
+        .await
+        .and_then(|slice| serde_json::from_slice::<TopicHeader>(&slice).ok())
+    {
+        Some(th) => web::Json(json!(th)),
+        None => web::Json(json!({"status":"errro", "mes": "error fetching header"})),
+    }
+}
+
 #[get("/history/{id}/")]
 pub async fn history(id: web::Path<String>, redis: web::Data<Addr<RedisActor>>) -> impl Responder {
     let id = id.into_inner();
