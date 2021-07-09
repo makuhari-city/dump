@@ -1,4 +1,5 @@
 mod handlers;
+mod ipfs;
 mod model;
 mod redis_object;
 mod redis_util;

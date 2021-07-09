@@ -1,5 +1,8 @@
-use crate::model::TopicHeader;
-use crate::{model::TopicCalculationResult, redis_util, RedisObject};
+use crate::{
+    ipfs::post_ipfs,
+    model::{TopicCalculationResult, TopicHeader},
+    redis_util, RedisObject,
+};
 use actix::Addr;
 use actix_redis::RedisActor;
 use actix_web::{get, post, web, Responder};
@@ -79,7 +82,7 @@ pub async fn post_topic_raw(
 
     let topic_hash = topic.hash();
 
-    let new_tag = match header {
+    let new_header = match header {
         Some(t) if t.hash == topic_hash => {
             // check if tag's hash is the same as the current topic
             // if it's the same do nothing. data won't change
@@ -90,10 +93,11 @@ pub async fn post_topic_raw(
         _ => TopicHeader::new(&topic.id, &topic_hash, &topic.title),
     };
 
+    let write_hash = post_ipfs(&topic_hash);
     let push_history = redis_util::push_history(&topic.id, &topic_hash, &redis);
-    let update_tag = redis_util::add(&new_tag, &redis);
+    let update_tag = redis_util::add(&new_header, &redis);
     let add_topic = redis_util::add(&topic, &redis);
-    let (id, _hash, _history) = join!(update_tag, add_topic, push_history);
+    let (id, _hash, _history, _ipfs) = join!(update_tag, add_topic, push_history, write_hash);
     match id {
         Some(id) => return web::Json(json!({"status":"ok", "hash": topic_hash, "id": id})),
         None => {
