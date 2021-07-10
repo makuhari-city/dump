@@ -1,13 +1,17 @@
 use actix_web::client::Client;
-use futures::FutureExt;
+use serde_json::Value;
 
 const IPFS_LOG_BASE_URL: &str = "https://vote.metacity.jp/ipfs/log";
 
-pub async fn post_ipfs(data: &str) -> Option<String> {
-    let endpoint = format!("{}/{}/", IPFS_LOG_BASE_URL, data);
+pub async fn post_ipfs(data: &Value) -> Option<String> {
+    let endpoint = format!("{}/", IPFS_LOG_BASE_URL);
 
     let client = Client::new();
-    let response = client.post(&endpoint).send().await;
+    let response = client
+        .post(&endpoint)
+        .header("Content-Type", "application.json")
+        .send_json(data)
+        .await;
 
     if response.is_err() {
         log::error!("could not post to ipfs endpoint");

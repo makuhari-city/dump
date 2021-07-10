@@ -93,7 +93,10 @@ pub async fn post_topic_raw(
         _ => TopicHeader::new(&topic.id, &topic_hash, &topic.title),
     };
 
-    let write_hash = post_ipfs(&topic_hash);
+    let data = serde_json::to_value(&topic_hash)
+        .expect("this is just a string... should be straight forward");
+
+    let write_hash = post_ipfs(&data);
     let push_history = redis_util::push_history(&topic.id, &topic_hash, &redis);
     let update_tag = redis_util::add(&new_header, &redis);
     let add_topic = redis_util::add(&topic, &redis);
