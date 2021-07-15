@@ -221,10 +221,8 @@ pub async fn update_vote(
 
     let mut data = data.unwrap();
 
-    // is this uid already registered?
-    if !data.votes().iter().any(|(p, _)| p == &uservote.id) {
-        let _ = data.add_delegate(&uservote.id, &uservote.name);
-    };
+    // we want to update the delegates info for what ever reason (name change);
+    data.force_add_delegate(&uservote.id, &uservote.name);
 
     data.overwrite_vote_for(uservote.id, uservote.vote);
 

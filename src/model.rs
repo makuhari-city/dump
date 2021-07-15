@@ -66,8 +66,21 @@ impl RedisObject for TopicData {
         let mut hash = Sha256::new();
         hash.update(self.title.as_bytes());
         hash.update(self.description.as_bytes());
+
+        // FIXME: This is ugly. we are hasing the key and value of policies and delegates
+        // separately...
+        let p_values = self
+            .policies_values()
+            .iter()
+            .fold("".to_string(), |acc, d| format!("{}{}", acc, d));
+        hash.update(p_values.as_bytes());
+        let d_values = self
+            .delegates_values()
+            .iter()
+            .fold("".to_string(), |acc, d| format!("{}{}", acc, d));
+        hash.update(d_values.as_bytes());
         let vote: VoteData = self.to_owned().into();
-        hash.update(&serde_json::to_vec(&vote).expect("VoteDate is Serializeable"));
+        hash.update(&serde_json::to_vec(&vote).expect("VoteData should be Serializeable."));
 
         encode(hash.finalize()).into_string()
     }
