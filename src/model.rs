@@ -6,6 +6,13 @@ use uuid::Uuid;
 use vote::{TopicData, VoteData};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RepresentativeInfo {
+    name: String,
+    link: Option<String>,
+    info: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TopicHeader {
     pub id: Uuid,
     pub hash: String,

@@ -1,6 +1,6 @@
 use crate::{
     ipfs::post_ipfs,
-    model::{TopicCalculationResult, TopicHeader},
+    model::{RepresentativeInfo, TopicCalculationResult, TopicHeader},
     redis_util, RedisObject,
 };
 use actix::Addr;
@@ -362,5 +362,43 @@ pub async fn get_result(
     {
         Some(result) => web::Json(json!(result)),
         None => web::Json(json!({"status":"error", "mes":"could not find result"})),
+    }
+}
+
+#[post("/rep/{rep_id}/")]
+pub async fn post_rep(
+    rep_info: web::Json<RepresentativeInfo>,
+    rep_id: web::Path<String>,
+    redis: web::Data<Addr<RedisActor>>,
+) -> impl Responder {
+    let id = rep_id.into_inner();
+    let rep_info = rep_info.into_inner();
+
+    // TODO: this needs to be validated weather it's really a uuid
+
+    match redis_util::push_representative(&id, &rep_info, &redis).await {
+        Some(_x) => web::Json(json!({"status":"ok"})),
+        None => web::Json(json!({"status":"error", "mes":"could not add reps"})),
+    }
+}
+
+#[get("/rep/{rep_id}/")]
+pub async fn get_rep(
+    rep_id: web::Path<String>,
+    redis: web::Data<Addr<RedisActor>>,
+) -> impl Responder {
+    let id = rep_id.into_inner();
+
+    match redis_util::get_representative(&id, &redis).await {
+        Some(reps) => web::Json(json!(reps)),
+        None => web::Json(json!({"status":"error", "mes":"could not get rep"})),
+    }
+}
+
+#[get("/reps/")]
+pub async fn get_reps(redis: web::Data<Addr<RedisActor>>) -> impl Responder {
+    match redis_util::get_representatives(&redis).await {
+        Some(reps) => web::Json(json!(reps)),
+        None => web::Json(json!({"status":"error", "mes":"could not get reps"})),
     }
 }

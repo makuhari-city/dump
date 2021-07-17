@@ -42,6 +42,10 @@ async fn main() -> std::io::Result<()> {
                     .service(hello)
                     // * list/
                     .service(get_list)
+                    // * rep/ ({repid})
+                    .service(get_reps)
+                    .service(get_rep)
+                    .service(post_rep)
                     .service(get_header)
                     // * history/id/
                     .service(history)

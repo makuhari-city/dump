@@ -1,4 +1,4 @@
-use crate::RedisObject;
+use crate::{model::RepresentativeInfo, RedisObject};
 use actix::Addr;
 use actix_redis::{Command, RedisActor};
 use actix_web::{web, Error as AWError, HttpResponse};
@@ -19,6 +19,61 @@ pub async fn add(obj: &impl RedisObject, redis: &web::Data<Addr<RedisActor>>) ->
         } else {
             None
         }
+    } else {
+        None
+    }
+}
+
+pub async fn push_representative(
+    id: &str,
+    info: &RepresentativeInfo,
+    redis: &web::Data<Addr<RedisActor>>,
+) -> Option<i64> {
+    let json_data = serde_json::to_string(&info).expect("info should be serializable");
+
+    let push = redis
+        .send(Command(resp_array![
+            "HSET",
+            "reps",
+            id.to_string(),
+            json_data
+        ]))
+        .await;
+    if let Ok(Ok(Value::Integer(x))) = push {
+        Some(x)
+    } else {
+        None
+    }
+}
+
+pub async fn get_representatives(redis: &web::Data<Addr<RedisActor>>) -> Option<Vec<String>> {
+    let get_reps = redis.send(Command(resp_array!["HKEYS", "reps"])).await;
+
+    if let Ok(Ok(Value::Array(r))) = get_reps {
+        let reps: Vec<String> = r
+            .iter()
+            .map(|v| match v {
+                Value::BulkString(x) => String::from_utf8(x.to_owned()).unwrap().to_owned(),
+                _ => "".to_string(),
+            })
+            .filter(|string| string != &("".to_string()))
+            .collect();
+        Some(reps)
+    } else {
+        None
+    }
+}
+
+pub async fn get_representative(
+    id: &str,
+    redis: &web::Data<Addr<RedisActor>>,
+) -> Option<RepresentativeInfo> {
+    let get_rep = redis.send(Command(resp_array!["HGET", "reps", id])).await;
+
+    if let Ok(Ok(Value::BulkString(r))) = get_rep {
+        let rep: RepresentativeInfo =
+            serde_json::from_slice(&r).expect("Rep Info should be serializable");
+        Some(rep)
     } else {
         None
     }
