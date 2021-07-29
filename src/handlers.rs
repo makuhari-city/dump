@@ -163,7 +163,10 @@ pub async fn update_field(
     };
 
     match update_topic_data(&data, &redis).await {
-        true => web::Json(json!({"status":"ok"})),
+        DumpStatus::UPDATE_SUCCESS => web::Json(json!({"status":"ok"})),
+        DumpStatus::TOPIC_DATA_NO_CHANGE => {
+            web::Json(json!({"status":"ok", "mes":"no change in data"}))
+        }
         _ => web::Json(json!({"status":"error", "mes":"failed to update topic data."})),
     }
 }
@@ -192,8 +195,11 @@ pub async fn add_policy(
     println!("vote:{:?}", vote);
 
     match update_topic_data(&data, &redis).await {
-        true => web::Json(json!(&data)),
-        _ => web::Json(json!({"status":"error", "mes": "failed to update data"})),
+        DumpStatus::UPDATE_SUCCESS => web::Json(json!({"status":"ok"})),
+        DumpStatus::TOPIC_DATA_NO_CHANGE => {
+            web::Json(json!({"status":"ok", "mes":"no change in data"}))
+        }
+        _ => web::Json(json!({"status":"error", "mes":"failed to update topic data."})),
     }
 }
 
@@ -227,8 +233,11 @@ pub async fn update_vote(
     data.overwrite_vote_for(uservote.id, uservote.vote);
 
     match update_topic_data(&data, &redis).await {
-        true => web::Json(json!(&data)),
-        _ => web::Json(json!({"status":"error", "mes": "failed to update data"})),
+        DumpStatus::UPDATE_SUCCESS => web::Json(json!({"status":"ok"})),
+        DumpStatus::TOPIC_DATA_NO_CHANGE => {
+            web::Json(json!({"status":"ok", "mes":"no change in data"}))
+        }
+        _ => web::Json(json!({"status":"error", "mes":"failed to update topic data."})),
     }
 }
 
@@ -249,7 +258,17 @@ pub async fn get_latest_id(id: &str, redis: &web::Data<Addr<RedisActor>>) -> Opt
         .and_then(|slice| serde_json::from_slice::<TopicData>(&slice).ok())
 }
 
-pub async fn update_topic_data(data: &TopicData, redis: &web::Data<Addr<RedisActor>>) -> bool {
+pub enum DumpStatus {
+    TOPIC_DATA_NO_CHANGE,
+    HEADER_NOT_FOUND,
+    UPDATE_SUCCESS,
+    UPDATE_FAILED,
+}
+
+pub async fn update_topic_data(
+    data: &TopicData,
+    redis: &web::Data<Addr<RedisActor>>,
+) -> DumpStatus {
     let header: Option<TopicHeader> = redis_util::get_slice(&data.id.to_string(), "header", &redis)
         .await
         .and_then(|slice| serde_json::from_slice(&slice).ok());
@@ -258,7 +277,7 @@ pub async fn update_topic_data(data: &TopicData, redis: &web::Data<Addr<RedisAct
 
     if header.is_none() {
         // no header, we don't update
-        return false;
+        return DumpStatus::HEADER_NOT_FOUND;
     }
 
     let data_hash = data.hash();
@@ -268,7 +287,7 @@ pub async fn update_topic_data(data: &TopicData, redis: &web::Data<Addr<RedisAct
 
     if &header.hash == &data_hash {
         // same data, we don't update
-        return false;
+        return DumpStatus::TOPIC_DATA_NO_CHANGE;
     }
 
     let push_history = redis_util::push_history(&data.id, &data_hash, &redis);
@@ -281,8 +300,8 @@ pub async fn update_topic_data(data: &TopicData, redis: &web::Data<Addr<RedisAct
     log::info!("hash: {:?}", &hash);
 
     match hash {
-        Some(_h) => true,
-        _ => false,
+        Some(_h) => DumpStatus::UPDATE_SUCCESS,
+        _ => DumpStatus::UPDATE_FAILED,
     }
 }
 
